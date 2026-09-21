@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -39,14 +40,40 @@ def get_gmail_profile():
     profile = request.execute()
     print(profile)
 
-def get_emails():
+def get_emails(limit=10, days=7):
+    query = f"newer_than:{days}d"
     service = get_email_service()
-    request = service.users().messages().list(userId="me", maxResults=10)
+    request = service.users().messages().list(userId="me", maxResults=limit, q=query)
     emails_list = request.execute()
-    request2 = service.users().messages().get(userId="me", id=emails_list["messages"][0]["id"])
-    email = request2.execute()
-    parsed_email = parse_email(email)
-    return parsed_email
+    page_token = emails_list.get("nextPageToken")
+    emails = []
+    for msg in emails_list["messages"]:
+        request = service.users().messages().get(userId="me", id=msg["id"])
+        email = request.execute()
+        parsed_email = parse_email(email)
+        emails.append(parsed_email)
+    while page_token and len(emails) < limit:
+        max_results = min(10, limit - len(emails))
+        request = service.users().messages().list(userId="me", maxResults=max_results, pageToken=page_token, q=query)
+        emails_list = request.execute()
+        page_token = emails_list.get("nextPageToken")
+        for msg in emails_list["messages"]:
+            request = service.users().messages().get(userId="me", id=msg["id"])
+            email = request.execute()
+            parsed_email = parse_email(email)
+            emails.append(parsed_email)
+    return emails
+
+def decode_body(data):
+    decoded_data = base64.urlsafe_b64decode(data)
+    text = decoded_data.decode("utf-8")
+    return text
+
+def clean_text(text):
+    text = text.replace("\xa0", " ")
+    text = re.sub(r"[\u034f\u200b\u200c\u200f\u202a-\u202e\ufeff]", "", text)
+    text = " ".join(text.split())
+    return text
 
 def parse_email(email):
     sender = None
@@ -70,42 +97,33 @@ def parse_email(email):
         for part in parts:
             if part["mimeType"] == "text/html":
                 data = part["body"]["data"]
-                decoded_data = base64.urlsafe_b64decode(data)
-                html_text = decoded_data.decode("utf-8")
+                html_text = decode_body(data)
                 soup = BeautifulSoup(html_text, "html.parser")
+                for element in soup.find_all(["style", "script"]):
+                    element.decompose()
                 html_body = soup.get_text(separator=" ", strip=True)
-                html_body = html_body.replace("\xa0", " ")
-                html_body = html_body.replace("\u034f", "")
-                html_body = " ".join(html_body.split())
+                html_body = clean_text(html_body)
             elif part["mimeType"] == "text/plain":
                 data = part["body"]["data"]
-                decoded_data = base64.urlsafe_b64decode(data)
-                plain_body = decoded_data.decode("utf-8")
-                plain_body = plain_body.replace("\xa0", " ")
-                plain_body = plain_body.replace("\u034f", "")
-                plain_body = " ".join(plain_body.split())
+                plain_body = decode_body(data)
+                plain_body = clean_text(plain_body)
     else:
         mime_type = email["payload"]["mimeType"]
         data = email["payload"]["body"].get("data")
-        decoded_data = base64.urlsafe_b64decode(data)
-        text = decoded_data.decode("utf-8")
+        text = decode_body(data)
         if mime_type == "text/html":
             soup = BeautifulSoup(text, "html.parser")
             text = soup.get_text(separator=" ", strip=True)
-            text = text.replace("\xa0", " ")
-            text = text.replace("\u034f", "")
-            text = " ".join(text.split())
+            text = clean_text(text)
             html_body = text
         elif mime_type == "text/plain":
-            text = text.replace("\xa0", " ")
-            text = text.replace("\u034f", "")
-            text = " ".join(text.split())
+            text = clean_text(text)
             plain_body = text
     if plain_body is not None:
         body = plain_body
     else:
         body = html_body
-    return {"sender": sender, "subject": subject, "recipient": recipient, "date": date, "body": body}
+    return {"id": email["id"], "sender": sender, "subject": subject, "recipient": recipient, "date": date, "body": body}
 
-result = get_emails()
+result = get_emails(25)
 print(result)
