@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS
     recipient TEXT,
     subject TEXT,
     date TEXT,
-    body TEXT
+    body TEXT,
+    processed INTEGER DEFAULT 0
 )
 """)
 

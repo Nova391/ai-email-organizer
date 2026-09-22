@@ -124,6 +124,3 @@ def parse_email(email):
     else:
         body = html_body
     return {"id": email["id"], "sender": sender, "subject": subject, "recipient": recipient, "date": date, "body": body}
-
-result = get_emails(25)
-print(result)
