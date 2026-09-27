@@ -48,6 +48,7 @@ class SyncResponse(BaseModel):
 
 class OrganizeRequest(BaseModel):
     limit: int | None = Field(default=None, ge=1, le=1000)
+    reprocess: bool = False
 
 class OrganizeResponse(BaseModel):
     processed: int

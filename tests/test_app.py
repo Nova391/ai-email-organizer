@@ -55,7 +55,30 @@ class AppTests(unittest.TestCase):
 
     def test_summary_is_bounded(self):
         result = summarize("First sentence. Second sentence is much longer.", max_chars=20)
-        self.assertLessEqual(len(result), 21)
+        self.assertLessEqual(len(result), 20)
+
+    def test_summary_prefers_relevant_action_and_removes_reply(self):
+        body = """Hi Jordan,
+
+        I hope you are doing well. The project report must be reviewed by Friday at 3:00 PM.
+        Please approve the final budget before the deadline. Thanks!
+
+        On Tue, Alex wrote:
+        > This old reply must never appear in the summary.
+        """
+        result = summarize(body, subject="Project report deadline")
+        self.assertIn("reviewed by Friday", result)
+        self.assertIn("approve the final budget", result)
+        self.assertNotIn("old reply", result)
+
+    def test_summary_removes_marketing_boilerplate(self):
+        body = "Your order 4821 ships tomorrow. Track it in your account. Unsubscribe from these emails."
+        result = summarize(body, subject="Order 4821 update")
+        self.assertIn("ships tomorrow", result)
+        self.assertNotIn("Unsubscribe", result)
+
+    def test_summary_uses_subject_when_body_is_empty(self):
+        self.assertEqual(summarize(None, subject="Your receipt is ready"), "Your receipt is ready")
 
 
 if __name__ == "__main__":

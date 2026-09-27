@@ -95,11 +95,18 @@ def list_emails(*, offset: int=0, limit: int=50, processed: bool|None=None,
                             [*params,limit,offset]).fetchall()
         return [dict(row) for row in rows], total
 
-def get_unprocessed_emails(limit: int|None=None) -> list[dict[str, Any]]:
-    sql, params = "SELECT * FROM emails WHERE processed=0 ORDER BY id", []
+def get_emails_for_processing(limit: int|None=None, *, reprocess: bool=False) -> list[dict[str, Any]]:
+    sql = "SELECT * FROM emails"
+    if not reprocess:
+        sql += " WHERE processed=0"
+    sql += " ORDER BY id"
+    params = []
     if limit is not None: sql += " LIMIT ?"; params.append(limit)
     with connection() as conn:
         return [dict(row) for row in conn.execute(sql, params).fetchall()]
+
+def get_unprocessed_emails(limit: int|None=None) -> list[dict[str, Any]]:
+    return get_emails_for_processing(limit)
 
 def mark_email_processed(gmail_id: str, *, category: str, category_confidence: float,
                          priority: str, priority_confidence: float, summary: str) -> None:

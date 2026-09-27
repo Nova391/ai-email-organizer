@@ -15,7 +15,7 @@ The first Gmail sync opens Google's OAuth flow and saves `token.json`. Both cred
 ## Workflow
 
 - `POST /api/sync` imports Gmail messages (`limit` and `days` are configurable).
-- `POST /api/organize` classifies and summarizes all unprocessed messages.
+- `POST /api/organize` classifies and summarizes unprocessed messages. Send `{"reprocess": true}` to rebuild every stored summary.
 - `GET /api/emails` lists messages with pagination and filters for `processed`, `category`, `priority`, and `search`.
 - `GET /api/stats` returns aggregate counts.
 - `POST /api/predict` classifies arbitrary email text without saving it.

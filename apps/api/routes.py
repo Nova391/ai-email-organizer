@@ -50,4 +50,4 @@ def sync(request: SyncRequest):
 
 @router.post("/organize", response_model=OrganizeResponse)
 def organize(request: OrganizeRequest):
-    return organize_unprocessed(request.limit)
+    return organize_unprocessed(request.limit, reprocess=request.reprocess)
