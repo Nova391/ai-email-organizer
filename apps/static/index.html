@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AI Email Organizer</title>
+  <style>
+    :root{font-family:Inter,system-ui,sans-serif;color:#18212f;background:#f4f7fb}*{box-sizing:border-box}
+    body{margin:0}.shell{max-width:1120px;margin:auto;padding:36px 22px}header{display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+    h1{margin:0;font-size:clamp(1.8rem,4vw,3rem);letter-spacing:-.04em}.muted{color:#657184}.actions,.filters{display:flex;gap:10px;flex-wrap:wrap}
+    button,input,select{border:1px solid #d8e0eb;border-radius:10px;background:white;padding:10px 13px;font:inherit}button{background:#315bea;color:white;border:0;font-weight:650;cursor:pointer}button.secondary{background:#fff;color:#233149;border:1px solid #d8e0eb}button:disabled{opacity:.55;cursor:wait}
+    .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:26px 0}.stat,.email{background:white;border:1px solid #e3e9f2;border-radius:16px;box-shadow:0 5px 18px #263b5c0a}.stat{padding:19px}.stat strong{display:block;font-size:1.8rem;margin-top:5px}
+    .toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin:20px 0;flex-wrap:wrap}.filters input{min-width:240px}.list{display:grid;gap:12px}.email{padding:18px}.email-top{display:flex;justify-content:space-between;gap:14px}.subject{font-weight:750;font-size:1.05rem}.sender{color:#657184;font-size:.9rem;margin-top:4px}.summary{line-height:1.5;margin:15px 0 0}.tags{display:flex;gap:7px;flex-wrap:wrap;margin-top:13px}.tag{background:#eef2ff;color:#3150a6;border-radius:999px;padding:5px 9px;font-size:.78rem;font-weight:650}.priority-high{background:#ffe8e8;color:#a32626}.priority-medium{background:#fff3d4;color:#815b00}.priority-low{background:#e9f7ef;color:#26734a}
+    .empty{text-align:center;padding:60px 20px;color:#657184}.error{background:#ffe8e8;color:#8f1f1f;padding:12px;border-radius:10px;margin:14px 0;display:none}@media(max-width:650px){.stats{grid-template-columns:1fr}.email-top{display:block}}
+  </style>
+</head>
+<body><main class="shell">
+  <header><div><h1>Inbox, organized.</h1><div class="muted">Private local classification and summaries</div></div><div class="actions"><button id="sync">Sync Gmail</button><button class="secondary" id="organize">Organize new mail</button></div></header>
+  <div id="error" class="error"></div>
+  <section class="stats"><div class="stat"><span class="muted">Total emails</span><strong id="total">—</strong></div><div class="stat"><span class="muted">Organized</span><strong id="processed">—</strong></div><div class="stat"><span class="muted">Waiting</span><strong id="waiting">—</strong></div></section>
+  <div class="toolbar"><h2>Messages</h2><div class="filters"><input id="search" placeholder="Search mail…"><select id="priority"><option value="">All priorities</option><option>high</option><option>medium</option><option>low</option></select><select id="status"><option value="">Any status</option><option value="true">Organized</option><option value="false">Waiting</option></select></div></div>
+  <section id="list" class="list"></section>
+</main><script>
+const $=id=>document.getElementById(id), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(path,options){const r=await fetch(path,options);if(!r.ok){let d;try{d=await r.json()}catch{}throw Error(d?.detail||`${r.status} ${r.statusText}`)}return r.json()}
+function fail(e){$('error').textContent=e.message;$('error').style.display='block'}
+async function refresh(){try{$('error').style.display='none';const q=new URLSearchParams({limit:'100'});if($('search').value)q.set('search',$('search').value);if($('priority').value)q.set('priority',$('priority').value);if($('status').value)q.set('processed',$('status').value);const [stats,page]=await Promise.all([api('/api/stats'),api('/api/emails?'+q)]);$('total').textContent=stats.total;$('processed').textContent=stats.processed;$('waiting').textContent=stats.unprocessed;$('list').innerHTML=page.items.length?page.items.map(e=>`<article class="email"><div class="email-top"><div><div class="subject">${esc(e.subject||'(No subject)')}</div><div class="sender">${esc(e.sender||'Unknown sender')}</div></div><div class="muted">${esc(e.date||'')}</div></div><p class="summary">${esc(e.summary||e.body?.slice(0,240)||'No message text')}</p><div class="tags">${e.category?`<span class="tag">${esc(e.category)}</span>`:''}${e.priority?`<span class="tag priority-${esc(e.priority)}">${esc(e.priority)} priority</span>`:''}${!e.processed?'<span class="tag">waiting</span>':''}</div></article>`).join(''):'<div class="empty">No matching messages.</div>'}catch(e){fail(e)}}
+async function act(button,path,body){button.disabled=true;try{await api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});await refresh()}catch(e){fail(e)}finally{button.disabled=false}}
+$('sync').onclick=()=>act($('sync'),'/api/sync',{limit:100,days:60});$('organize').onclick=()=>act($('organize'),'/api/organize',{});let timer;$('search').oninput=()=>{clearTimeout(timer);timer=setTimeout(refresh,250)};$('priority').onchange=refresh;$('status').onchange=refresh;refresh();
+</script></body></html>

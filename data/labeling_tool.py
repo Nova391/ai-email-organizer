@@ -6,7 +6,9 @@ from pathlib import Path
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-DATASET_PATH = Path("data/email_dataset.csv")
+ROOT_DIR = Path(__file__).resolve().parent.parent
+DATASET_PATH = ROOT_DIR / "data" / "email_dataset.csv"
+DB_PATH = ROOT_DIR / "emails.db"
 HEADERS = ["gmail_id", "sender", "subject", "body_snippet", "category", "priority"]
 
 CATEGORIES = {
@@ -45,7 +47,7 @@ def get_labeled_ids(csv_path=DATASET_PATH):
     return labeled_ids
 
 def get_emails():
-    connection = sqlite3.connect("emails.db")
+    connection = sqlite3.connect(DB_PATH)
     cursor = connection.cursor()
     cursor.execute("SELECT gmail_id, sender, subject, body FROM emails")
     emails = cursor.fetchall()

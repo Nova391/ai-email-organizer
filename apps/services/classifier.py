@@ -34,6 +34,14 @@ class NaiveBayesClassifier:
         self.total_docs = 0
 
     def fit(self, texts, labels):
+        if len(texts) != len(labels):
+            raise ValueError("texts and labels must have the same length")
+        if not texts:
+            raise ValueError("training data cannot be empty")
+        self.class_counts.clear()
+        self.word_counts.clear()
+        self.total_words_per_class.clear()
+        self.vocab.clear()
         self.total_docs = len(texts)
         for text, label in zip(texts, labels):
             self.class_counts[label] += 1
@@ -44,8 +52,10 @@ class NaiveBayesClassifier:
                 self.vocab.add(token)
 
     def predict_one(self, text):
+        if not self.total_docs or not self.class_counts:
+            raise RuntimeError("Classifier has not been trained")
         tokens = tokenize(text)
-        vocab_size = len(self.vocab)
+        vocab_size = max(1, len(self.vocab))
         best_class = None
         best_log_prob = -float("inf")
         class_scores = {}
@@ -103,10 +113,11 @@ class NaiveBayesClassifier:
 _CAT_MODEL = None
 _PRIO_MODEL = None
 
-def get_models(models_dir="models"):
+def get_models(models_dir=None):
     global _CAT_MODEL, _PRIO_MODEL
-    cat_path = Path(models_dir) / "category_model.json"
-    prio_path = Path(models_dir) / "priority_model.json"
+    base = Path(models_dir) if models_dir else Path(__file__).resolve().parents[2] / "models"
+    cat_path = base / "category_model.json"
+    prio_path = base / "priority_model.json"
 
     if _CAT_MODEL is None and cat_path.exists():
         _CAT_MODEL = NaiveBayesClassifier.load(cat_path)

@@ -1,21 +1,5 @@
-import sqlite3
+from apps.storage.database import init_db
 
-connection = sqlite3.connect("emails.db")
-cursor = connection.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS 
-    emails (
-    id INTEGER PRIMARY KEY,
-    gmail_id TEXT UNIQUE NOT NULL,
-    sender TEXT,
-    recipient TEXT,
-    subject TEXT,
-    date TEXT,
-    body TEXT,
-    processed INTEGER DEFAULT 0
-)
-""")
-
-connection.commit()
-connection.close()
+if __name__ == "__main__":
+    init_db()
+    print("Database is ready.")

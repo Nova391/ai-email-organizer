@@ -4,5 +4,7 @@ credentials.json
 token.json
 __pycache__/
 emails.db
+emails.db-wal
+emails.db-shm
 data/*.csv
-*.csv
+*.csv

@@ -1,126 +1,105 @@
-from pathlib import Path
+"""Gmail OAuth, retrieval, and MIME parsing."""
+from __future__ import annotations
+
+import base64
+import binascii
+import os
 import re
+from pathlib import Path
+from typing import Any
+
+from bs4 import BeautifulSoup
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-import base64
-from bs4 import BeautifulSoup
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+ROOT_DIR = Path(__file__).resolve().parents[2]
 
-def get_gmail_credentials():
+def _path(env_name: str, default: str) -> Path:
+    return Path(os.getenv(env_name, str(ROOT_DIR / default))).expanduser().resolve()
 
-    print("Starting OAuth...")
-
-    if Path("token.json").exists():
-        credentials = Credentials.from_authorized_user_file("token.json", SCOPES)
-        print("Credentials loaded.")
-    else:  
-        flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
-        print("Flow created. Starting browser...")
-
-        credentials = flow.run_local_server()
-        token_data = credentials.to_json()
-
-        with open("token.json", "w") as file:
-            file.write(token_data)
-
-    print("Authorization finished.")
+def get_gmail_credentials() -> Credentials:
+    token_path = _path("GMAIL_TOKEN_PATH", "token.json")
+    credentials_path = _path("GMAIL_CREDENTIALS_PATH", "credentials.json")
+    credentials = None
+    if token_path.exists():
+        credentials = Credentials.from_authorized_user_file(token_path, SCOPES)
+    if credentials and credentials.expired and credentials.refresh_token:
+        credentials.refresh(Request())
+        token_path.write_text(credentials.to_json(), encoding="utf-8")
+    if not credentials or not credentials.valid:
+        if not credentials_path.exists():
+            raise FileNotFoundError(
+                f"Gmail OAuth credentials not found at {credentials_path}. "
+                "Download an OAuth desktop client file and save it there.")
+        flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), SCOPES)
+        credentials = flow.run_local_server(port=0)
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text(credentials.to_json(), encoding="utf-8")
     return credentials
 
 def get_email_service():
-    smth = get_gmail_credentials()
-    service = build("gmail", "v1", credentials=smth)
-    return service
+    return build("gmail", "v1", credentials=get_gmail_credentials(), cache_discovery=False)
 
-def get_gmail_profile():
-    service = get_email_service()
-    request = service.users().getProfile(userId="me")
-    profile = request.execute()
-    print(profile)
+def get_gmail_profile() -> dict[str, Any]:
+    return get_email_service().users().getProfile(userId="me").execute()
 
-def get_emails(limit=10, days=7):
-    query = f"newer_than:{days}d"
+def get_emails(limit: int = 10, days: int = 7) -> list[dict[str, Any]]:
+    if limit < 1 or days < 1:
+        raise ValueError("limit and days must be positive")
     service = get_email_service()
-    request = service.users().messages().list(userId="me", maxResults=limit, q=query)
-    emails_list = request.execute()
-    page_token = emails_list.get("nextPageToken")
-    emails = []
-    for msg in emails_list["messages"]:
-        request = service.users().messages().get(userId="me", id=msg["id"])
-        email = request.execute()
-        parsed_email = parse_email(email)
-        emails.append(parsed_email)
-    while page_token and len(emails) < limit:
-        max_results = min(10, limit - len(emails))
-        request = service.users().messages().list(userId="me", maxResults=max_results, pageToken=page_token, q=query)
-        emails_list = request.execute()
-        page_token = emails_list.get("nextPageToken")
-        for msg in emails_list["messages"]:
-            request = service.users().messages().get(userId="me", id=msg["id"])
-            email = request.execute()
-            parsed_email = parse_email(email)
-            emails.append(parsed_email)
+    emails: list[dict[str, Any]] = []
+    page_token = None
+    while len(emails) < limit:
+        response = service.users().messages().list(
+            userId="me", maxResults=min(100, limit - len(emails)),
+            q=f"newer_than:{days}d", pageToken=page_token).execute()
+        for message in response.get("messages", []):
+            raw = service.users().messages().get(userId="me", id=message["id"], format="full").execute()
+            emails.append(parse_email(raw))
+            if len(emails) == limit:
+                break
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            break
     return emails
 
-def decode_body(data):
-    decoded_data = base64.urlsafe_b64decode(data)
-    text = decoded_data.decode("utf-8")
-    return text
+def decode_body(data: str | None) -> str:
+    if not data:
+        return ""
+    try:
+        padded = data + "=" * (-len(data) % 4)
+        return base64.urlsafe_b64decode(padded).decode("utf-8", errors="replace")
+    except (ValueError, binascii.Error):
+        return ""
 
-def clean_text(text):
+def clean_text(text: str) -> str:
     text = text.replace("\xa0", " ")
     text = re.sub(r"[\u034f\u200b\u200c\u200f\u202a-\u202e\ufeff]", "", text)
-    text = " ".join(text.split())
-    return text
+    return " ".join(text.split())
 
-def parse_email(email):
-    sender = None
-    recipient = None
-    subject = None
-    date = None
-    body = None
-    plain_body = None
-    html_body = None
-    for header in email["payload"]["headers"]:
-        if header["name"] == "From":
-            sender = header["value"]
-        elif header["name"] == "Subject":
-            subject = header["value"]
-        elif header["name"] == "To":
-            recipient = header["value"]
-        elif header["name"] == "Date":
-            date = header["value"]
-    parts = email["payload"].get("parts")
-    if parts is not None:
-        for part in parts:
-            if part["mimeType"] == "text/html":
-                data = part["body"]["data"]
-                html_text = decode_body(data)
-                soup = BeautifulSoup(html_text, "html.parser")
-                for element in soup.find_all(["style", "script"]):
-                    element.decompose()
-                html_body = soup.get_text(separator=" ", strip=True)
-                html_body = clean_text(html_body)
-            elif part["mimeType"] == "text/plain":
-                data = part["body"]["data"]
-                plain_body = decode_body(data)
-                plain_body = clean_text(plain_body)
-    else:
-        mime_type = email["payload"]["mimeType"]
-        data = email["payload"]["body"].get("data")
-        text = decode_body(data)
-        if mime_type == "text/html":
-            soup = BeautifulSoup(text, "html.parser")
-            text = soup.get_text(separator=" ", strip=True)
-            text = clean_text(text)
-            html_body = text
-        elif mime_type == "text/plain":
-            text = clean_text(text)
-            plain_body = text
-    if plain_body is not None:
-        body = plain_body
-    else:
-        body = html_body
-    return {"id": email["id"], "sender": sender, "subject": subject, "recipient": recipient, "date": date, "body": body}
+def _extract_bodies(part: dict[str, Any], plain: list[str], html: list[str]) -> None:
+    mime_type = part.get("mimeType", "")
+    data = part.get("body", {}).get("data")
+    if data and mime_type == "text/plain":
+        plain.append(clean_text(decode_body(data)))
+    elif data and mime_type == "text/html":
+        soup = BeautifulSoup(decode_body(data), "html.parser")
+        for element in soup(["style", "script", "noscript"]):
+            element.decompose()
+        html.append(clean_text(soup.get_text(separator=" ", strip=True)))
+    for child in part.get("parts", []):
+        _extract_bodies(child, plain, html)
+
+def parse_email(email: dict[str, Any]) -> dict[str, Any]:
+    payload = email.get("payload") or {}
+    headers = {h.get("name", "").lower(): h.get("value") for h in payload.get("headers", [])}
+    plain: list[str] = []
+    html: list[str] = []
+    _extract_bodies(payload, plain, html)
+    body_parts = [part for part in plain if part] or [part for part in html if part]
+    return {"id": email.get("id", ""), "sender": headers.get("from"),
+            "recipient": headers.get("to"), "subject": headers.get("subject"),
+            "date": headers.get("date"), "body": "\n\n".join(body_parts) or None}

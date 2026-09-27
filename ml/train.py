@@ -50,8 +50,8 @@ def evaluate_metrics(y_true, y_pred, title):
     print("=" * 65)
 
 def train_and_evaluate():
-    data_path = Path("data/email_dataset.csv")
-    models_dir = Path("models")
+    data_path = ROOT_DIR / "data" / "email_dataset.csv"
+    models_dir = ROOT_DIR / "models"
     models_dir.mkdir(exist_ok=True)
 
     rows = []
@@ -68,6 +68,8 @@ def train_and_evaluate():
                 "priority": r["priority"]
             })
 
+    if len(rows) < 2:
+        raise ValueError("At least two labeled emails are required for training")
     random.seed(42)
     by_cat = defaultdict(list)
     for r in rows:
@@ -78,7 +80,7 @@ def train_and_evaluate():
 
     for cat, items in by_cat.items():
         random.shuffle(items)
-        split_idx = int(len(items) * 0.8)
+        split_idx = max(1, min(len(items) - 1, int(len(items) * 0.8))) if len(items) > 1 else 1
         train_data.extend(items[:split_idx])
         test_data.extend(items[split_idx:])
 
@@ -97,12 +99,14 @@ def train_and_evaluate():
     cat_model = NaiveBayesClassifier()
     cat_model.fit(train_texts, y_train_cat)
     pred_cat = cat_model.predict(test_texts)
-    evaluate_metrics(y_test_cat, pred_cat, "CATEGORY MODEL (20% UNSEEN TEST SET)")
+    if test_data:
+        evaluate_metrics(y_test_cat, pred_cat, "CATEGORY MODEL (20% UNSEEN TEST SET)")
 
     prio_model = NaiveBayesClassifier()
     prio_model.fit(train_texts, y_train_prio)
     pred_prio = prio_model.predict(test_texts)
-    evaluate_metrics(y_test_prio, pred_prio, "PRIORITY MODEL (20% UNSEEN TEST SET)")
+    if test_data:
+        evaluate_metrics(y_test_prio, pred_prio, "PRIORITY MODEL (20% UNSEEN TEST SET)")
 
     cat_model.save(models_dir / "category_model.json")
     prio_model.save(models_dir / "priority_model.json")
